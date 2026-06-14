@@ -1,211 +1,159 @@
-# Uh-Huh Runtime V0.1
+# Uh-Huh Runtime
 
-**Prototype status:** this is a local prototype, not production software. It has a CLI demo and a lightweight Streamlit UI, but no hosted service, no database, and no real integrations. V0.1 exists only to prove the first control-gap workflow.
+**Prototype status:** Uh-Huh Runtime is a local prototype, not production software. V0.1/V0.2 demonstrate one control gap only: `Recovery Ownership Gap`.
 
-Uh-Huh Runtime V0.1 is a demo for one control gap:
+Uh-Huh detects missing operational controls before consequential actions proceed, then asks the minimum useful question needed to resolve the gap.
 
-> **Recovery Ownership Gap:** a consequential production action lacks a named owner for rollback, support, recovery, or remediation.
+```text
+control gap detected -> minimum useful question asked -> evidence supplied -> action allowed
+```
 
-It proves one product sentence:
+## What This Repo Contains
 
-> Uh-Huh does not score generic risk. It detects a specific control gap and asks the minimum useful question needed to close it before execution.
+- **Python CLI runtime:** the reference prototype.
+- **Streamlit app:** legacy non-technical walkthrough.
+- **Next.js web console:** the current functional product demo for user testing.
+- **Shared test scenarios:** parity fixtures for Python and TypeScript runtime behavior.
 
-## Quickstart
+## Install Python Dependencies
 
-Requirements:
-
-- Python 3.10+
-- PowerShell
-
-From this directory:
+Run from the repository root:
 
 ```powershell
 cd C:\Users\mjhin\uh_huh_runtime_v01
 python -m pip install -r requirements.txt
+```
+
+## Python CLI Demo
+
+Run the three-scenario CLI demo:
+
+```powershell
+cd C:\Users\mjhin\uh_huh_runtime_v01
 powershell -ExecutionPolicy Bypass -File .\demo.ps1
 ```
 
-This runs three scenarios.
+The CLI writes local JSONL audit ledgers under `data/`.
 
-## Streamlit UI
+## Streamlit Legacy Demo
 
-For a non-technical walkthrough, run:
+The Streamlit app is still available, but the Next.js console is now the preferred user-testing surface.
 
 ```powershell
+cd C:\Users\mjhin\uh_huh_runtime_v01
 streamlit run app.py
 ```
 
-The UI presents:
+## Next.js Web Console
 
-- Action
-- Detected Control Gap
-- Minimum Useful Question
-- Resolution
-- Final Decision
+The web console is the current V0.2 demo. It supports:
 
-It includes the same three demo scenarios:
+- the three fixed demo scenarios
+- custom action testing
+- visible rule trace
+- audit preview
+- hidden advanced JSON
 
-- Missing owner -> `ask`
-- Supplied owner -> `allow`
-- Existing owner -> `allow`
-
-### Scenario A: Missing Owner
-
-Command run by `demo.ps1`:
+Install web dependencies once:
 
 ```powershell
-python -m uh_huh_runtime.cli data/action_missing_recovery_owner.json --audit-ledger data/demo_missing_owner_audit.jsonl
+cd C:\Users\mjhin\uh_huh_runtime_v01\web
+npm.cmd install
 ```
 
-Expected output:
-
-```json
-{
-  "decision": "ask",
-  "detected_gap": "recovery_ownership_gap",
-  "missing_evidence": [
-    "rollback_owner",
-    "support_owner",
-    "rollback_plan"
-  ],
-  "question_asked": "Who owns rollback and support coverage if this fails?",
-  "resolution_status": "unresolved",
-  "resolution_evidence": [],
-  "final_decision": "ask",
-  "rationale": "Production action lacks named rollback or support ownership."
-}
-```
-
-### Scenario B: Supplied Owner Resolves The Gap
-
-Command run by `demo.ps1`:
+Run locally in development mode:
 
 ```powershell
-python -m uh_huh_runtime.cli data/action_missing_recovery_owner.json --owner jane@example.com --rollback-plan https://runbooks.example.com/payments-api/rollback --audit-ledger data/demo_resolved_owner_audit.jsonl
+npm.cmd run dev
 ```
 
-Expected output:
-
-```json
-{
-  "decision": "allow",
-  "detected_gap": null,
-  "missing_evidence": [],
-  "question_asked": null,
-  "resolution_status": "resolved",
-  "resolution_evidence": [
-    "rollback_owner:jane@example.com",
-    "support_owner:jane@example.com",
-    "rollback_plan:https://runbooks.example.com/payments-api/rollback"
-  ],
-  "final_decision": "allow",
-  "rationale": "Production action has rollback and support ownership evidence."
-}
-```
-
-### Scenario C: Existing Owner Allows Immediately
-
-Command run by `demo.ps1`:
-
-```powershell
-python -m uh_huh_runtime.cli data/action_with_recovery_owner.json --audit-ledger data/demo_existing_owner_audit.jsonl
-```
-
-Expected output:
-
-```json
-{
-  "decision": "allow",
-  "detected_gap": null,
-  "missing_evidence": [],
-  "question_asked": null,
-  "resolution_status": "not_applicable",
-  "resolution_evidence": [
-    "rollback_owner:jane@example.com",
-    "support_owner:sre-oncall",
-    "rollback_plan:https://runbooks.example.com/payments-api/rollback"
-  ],
-  "final_decision": "allow",
-  "rationale": "Production action has rollback and support ownership evidence."
-}
-```
-
-## Audit Logs
-
-The demo writes local JSONL audit ledgers:
+Open:
 
 ```text
-data/demo_missing_owner_audit.jsonl
-data/demo_resolved_owner_audit.jsonl
-data/demo_existing_owner_audit.jsonl
+http://localhost:3000
 ```
 
-Inspect one:
+Build production assets:
 
 ```powershell
-Get-Content data/demo_missing_owner_audit.jsonl
+npm.cmd run build
 ```
 
-Each audit record includes:
+Run the production build locally:
 
-```json
-{
-  "action_id": "act_prod_001",
-  "actor_id": "release-agent",
-  "detected_gap": "recovery_ownership_gap",
-  "missing_evidence": ["rollback_owner", "support_owner", "rollback_plan"],
-  "question_asked": "Who owns rollback and support coverage if this fails?",
-  "resolution_status": "unresolved",
-  "resolution_evidence": [],
-  "final_decision": "ask",
-  "timestamp": "..."
-}
+```powershell
+npm.cmd run start
 ```
 
-## Project Structure
-
-```text
-app.py          # Streamlit UI demo
-uh_huh_runtime/
-  cli.py        # command-line entry point
-  runtime.py    # detection, intervention selection, audit writing
-  models.py     # Action, Evaluation, AuditRecord
-data/           # demo actions and audit ledgers
-schemas/        # JSON schemas
-tests/          # pytest tests
-demo.ps1        # one-command demo
-```
+Important: `npm.cmd run build` only builds the app. It does not start a server.
 
 ## Tests
 
-Run:
+Python syntax check:
+
+```powershell
+python -m compileall app.py uh_huh_runtime tests
+```
+
+Python tests:
 
 ```powershell
 python -m pytest
 ```
 
-Syntax check:
+If Windows temp-folder permissions interfere with `tmp_path`, use:
 
 ```powershell
-python -m compileall uh_huh_runtime tests
+python -m pytest --basetemp .deps\pytest-tmp -p no:cacheprovider
 ```
 
-## Friendly Error Handling
-
-Bad file:
+TypeScript runtime parity:
 
 ```powershell
-python -m uh_huh_runtime.cli data/does_not_exist.json
+cd C:\Users\mjhin\uh_huh_runtime_v01\web
+npm.cmd run test:runtime
 ```
 
-Expected error:
+Next.js production build:
+
+```powershell
+cd C:\Users\mjhin\uh_huh_runtime_v01\web
+npm.cmd run build
+```
+
+## Core Control Gap
+
+**Recovery Ownership Gap:** a consequential production action lacks a named owner for rollback, support, recovery, or remediation.
+
+Minimum useful question:
 
 ```text
-Uh-Huh input error: file not found: data\does_not_exist.json
+Who owns rollback and support coverage if this fails?
 ```
 
-Missing required field:
+## Project Structure
 
 ```text
-Uh-Huh input error: missing required field(s): action_id
+app.py                         # Streamlit legacy demo
+demo.ps1                       # CLI demo runner
+uh_huh_runtime/
+  cli.py                       # CLI entry point
+  runtime.py                   # Python detection and audit logic
+  models.py                    # Python data models
+web/
+  app/page.tsx                 # Next.js execution console
+  lib/runtime.ts               # TypeScript demo runtime
+  scripts/validate-runtime.mjs # TypeScript parity check
+test_scenarios/
+  recovery_ownership_cases.json
+tests/
+  test_recovery_ownership_gap.py
 ```
+
+## Known Limitations
+
+- One control gap only.
+- Python and TypeScript runtimes are duplicated and checked by shared fixtures.
+- No auth, database, API, external integrations, or model calls.
+- Web audit preview is not persisted.
+- Timestamp parsing is intentionally simple.

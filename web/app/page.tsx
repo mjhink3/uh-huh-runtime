@@ -173,12 +173,14 @@ export default function Home() {
             scenario={scenario}
             isCustom={isCustom}
             customDraft={customDraft}
+            evaluatedAction={activeAction}
             evaluation={evaluation}
             onSelect={selectScenario}
             onCustomChange={updateCustomAction}
           />
-          <QuestionPanel evaluation={evaluation} state={state} />
+          <QuestionPanel action={activeAction} evaluation={evaluation} state={state} />
           <ProceedPanel
+            action={activeAction}
             evaluation={evaluation}
             state={state}
             hasSubmittedEvidence={hasSubmittedEvidence}
@@ -256,6 +258,7 @@ function PausePanel({
   scenario,
   isCustom,
   customDraft,
+  evaluatedAction,
   evaluation,
   onSelect,
   onCustomChange,
@@ -264,6 +267,7 @@ function PausePanel({
   scenario: Scenario;
   isCustom: boolean;
   customDraft: Action;
+  evaluatedAction: Action;
   evaluation: Evaluation;
   onSelect: (key: string) => void;
   onCustomChange: <K extends keyof Action>(key: K, value: Action[K]) => void;
@@ -315,7 +319,26 @@ function PausePanel({
           Proposed action
         </div>
         {isCustom ? (
-          <CustomActionForm action={customDraft} onChange={onCustomChange} />
+          <>
+            <div className="mt-3 flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-warning">
+                Draft Action
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                Click Evaluate Action to apply edits
+              </span>
+            </div>
+            <CustomActionForm action={customDraft} onChange={onCustomChange} />
+            <div className="mt-3 rounded-xl border border-border bg-muted/[0.2] p-3">
+              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                Last Evaluated
+              </div>
+              <div className="mt-1 truncate font-mono text-sm">
+                {commandFromAction(evaluatedAction)}
+              </div>
+            </div>
+            <TimestampWarning action={customDraft} />
+          </>
         ) : (
           <div className="mt-3 rounded-xl border border-border bg-[#0f1012] p-4">
             <div className="font-mono text-lg text-foreground">{scenario.command}</div>
@@ -408,10 +431,25 @@ function CustomActionForm({
   );
 }
 
+function TimestampWarning({ action }: { action: Action }) {
+  const status = timestampStatus(action.timestamp);
+  if (status.valid && status.afterHours !== null) {
+    return null;
+  }
+  return (
+    <div className="mt-3 rounded-xl border border-warning/35 bg-warning/[0.08] p-3 text-xs leading-5 text-warning">
+      Timestamp warning: after-hours could not be determined. Use an ISO-like value such as
+      2026-06-14T18:15:00-07:00.
+    </div>
+  );
+}
+
 function QuestionPanel({
+  action,
   evaluation,
   state,
 }: {
+  action: Action;
   evaluation: Evaluation;
   state: ReturnType<typeof consoleState>;
 }) {
@@ -459,13 +497,38 @@ function QuestionPanel({
             />
             <Signal label="Intervention" value={state.decision} tone={state.signalTone} />
           </div>
+          <RuleTrace action={action} evaluation={evaluation} />
         </div>
       </div>
     </section>
   );
 }
 
+function RuleTrace({ action, evaluation }: { action: Action; evaluation: Evaluation }) {
+  const trace = buildRuleTrace(action, evaluation);
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-[#101113] p-4">
+      <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        Why Uh-Huh decided
+      </div>
+      <div className="grid gap-x-4 gap-y-2 md:grid-cols-2">
+        {trace.map((item) => (
+          <div key={item.label} className="flex min-w-0 items-center justify-between gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              {item.label}
+            </span>
+            <span className={cn("truncate text-right text-xs font-semibold", item.className)}>
+              {item.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ProceedPanel({
+  action,
   evaluation,
   state,
   hasSubmittedEvidence,
@@ -479,6 +542,7 @@ function ProceedPanel({
   onSubmit,
   onClear,
 }: {
+  action: Action;
   evaluation: Evaluation;
   state: ReturnType<typeof consoleState>;
   hasSubmittedEvidence: boolean;
@@ -561,7 +625,38 @@ function ProceedPanel({
           Control gap closed. Execution may proceed.
         </div>
       ) : null}
+      <AuditPreview action={action} evaluation={evaluation} />
     </section>
+  );
+}
+
+function AuditPreview({ action, evaluation }: { action: Action; evaluation: Evaluation }) {
+  const record = auditPreview(action, evaluation);
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-[#101113] p-3">
+      <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        Audit preview
+      </div>
+      <div className="mt-3 space-y-2">
+        <AuditRow label="action_id" value={record.action_id} />
+        <AuditRow label="actor_id" value={record.actor_id} />
+        <AuditRow label="detected_gap" value={record.detected_gap ?? "none"} />
+        <AuditRow label="question_asked" value={record.question_asked ?? "none"} />
+        <AuditRow label="missing_evidence" value={record.missing_evidence.join(", ") || "none"} />
+        <AuditRow label="final_decision" value={record.final_decision} />
+        <AuditRow label="resolution_status" value={record.resolution_status} />
+        <AuditRow label="timestamp" value={record.timestamp} />
+      </div>
+    </div>
+  );
+}
+
+function AuditRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[0.95fr_1.1fr] gap-3 text-xs">
+      <span className="truncate font-mono text-muted-foreground">{label}</span>
+      <span className="truncate text-right font-semibold text-foreground/85">{value}</span>
+    </div>
   );
 }
 
@@ -867,4 +962,84 @@ function normalizeCustomAction(action: Action): Action {
 function optionalText(value?: string): string | undefined {
   const text = value?.trim();
   return text ? text : undefined;
+}
+
+function buildRuleTrace(action: Action, evaluation: Evaluation) {
+  const timestamp = timestampStatus(action.timestamp);
+  const isProduction = ["prod", "production"].includes(action.environment.trim().toLowerCase());
+  const rollbackMissing = !action.rollbackOwner?.trim();
+  const supportMissing = !action.supportOwner?.trim();
+  const planMissing = !action.rollbackPlan?.trim();
+  const rule = !isProduction
+    ? "non-production action"
+    : evaluation.finalDecision === "escalate"
+      ? "production + after-hours + low reversibility + missing recovery evidence"
+      : evaluation.detectedGap
+        ? "production + missing recovery evidence"
+        : "production + recovery evidence present";
+
+  return [
+    {
+      label: "environment",
+      value: action.environment || "missing",
+      className: isProduction ? "text-warning" : "text-success",
+    },
+    {
+      label: "rollback_owner",
+      value: rollbackMissing ? "missing" : "present",
+      className: rollbackMissing ? "text-warning" : "text-success",
+    },
+    {
+      label: "support_owner",
+      value: supportMissing ? "missing" : "present",
+      className: supportMissing ? "text-warning" : "text-success",
+    },
+    {
+      label: "rollback_plan",
+      value: planMissing ? "missing" : "present",
+      className: planMissing ? "text-warning" : "text-success",
+    },
+    {
+      label: "after_hours",
+      value: timestamp.afterHours === null ? "unknown" : String(timestamp.afterHours),
+      className: timestamp.afterHours === null ? "text-warning" : "text-foreground",
+    },
+    {
+      label: "rule",
+      value: rule,
+      className: evaluation.finalDecision === "allow" ? "text-success" : "text-warning",
+    },
+    {
+      label: "decision",
+      value: evaluation.finalDecision,
+      className:
+        evaluation.finalDecision === "allow"
+          ? "text-success"
+          : evaluation.finalDecision === "escalate"
+            ? "text-danger"
+            : "text-warning",
+    },
+  ];
+}
+
+function auditPreview(action: Action, evaluation: Evaluation) {
+  return {
+    action_id: action.actionId,
+    actor_id: action.actorId,
+    detected_gap: evaluation.detectedGap,
+    question_asked: evaluation.questionAsked,
+    missing_evidence: evaluation.missingEvidence,
+    final_decision: evaluation.finalDecision,
+    resolution_status: evaluation.resolutionStatus,
+    timestamp: action.timestamp,
+  };
+}
+
+function timestampStatus(timestamp: string): { valid: boolean; afterHours: boolean | null } {
+  const hourText = timestamp.split("T", 2)[1]?.slice(0, 2);
+  const hour = Number(hourText);
+  if (!hourText || Number.isNaN(hour) || hour < 0 || hour > 23) {
+    return { valid: false, afterHours: null };
+  }
+  return { valid: true, afterHours: hour < 8 || hour >= 17 };
 }

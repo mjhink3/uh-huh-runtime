@@ -2,12 +2,16 @@
 
 This roadmap preserves V0.1 scope and lists the next focused checkpoints.
 
-## V0.2: Schema Validation
+## V0.2: Functional Testable Console
 
-- Validate action JSON against `schemas/action.schema.json` before normalization.
-- Validate evaluation and audit outputs against their schemas in tests.
-- Add clear validation errors for missing, invalid, or malformed fields.
-- Add a CLI validation-only mode.
+- Add shared recovery ownership scenario fixtures.
+- Verify Python and TypeScript runtime parity against the same cases.
+- Add custom action testing in the Next.js console.
+- Add visible deterministic rule trace.
+- Add compact audit preview.
+- Clarify draft action versus last evaluated result.
+- Add visible timestamp validation warnings.
+- Update setup, build, run, and deployment documentation.
 
 ## V0.3: Second Control Gap
 

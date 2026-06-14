@@ -3,8 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from uh_huh_runtime.models import RECOVERY_OWNERSHIP_GAP, RECOVERY_OWNERSHIP_QUESTION, Action
 from uh_huh_runtime.runtime import UhHuhRuntime
+
+ROOT = Path(__file__).resolve().parents[1]
+SHARED_CASES = ROOT / "test_scenarios" / "recovery_ownership_cases.json"
 
 
 def make_action(**overrides: object) -> Action:
@@ -160,3 +165,22 @@ def test_demo_readiness_flow(tmp_path: Path) -> None:
     assert records[0]["final_decision"] == "ask"
     assert records[1]["final_decision"] == "allow"
     assert records[2]["final_decision"] == "allow"
+
+
+def load_shared_cases() -> list[dict[str, object]]:
+    return json.loads(SHARED_CASES.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("case", load_shared_cases(), ids=lambda case: case["case_id"])
+def test_shared_recovery_ownership_cases(case: dict[str, object]) -> None:
+    runtime = UhHuhRuntime()
+    action = Action.from_dict(case["action"])  # type: ignore[arg-type]
+    expected = case["expected"]  # type: ignore[assignment]
+
+    result = runtime.evaluate(action)
+
+    assert result.final_decision == expected["final_decision"]
+    assert result.detected_gap == expected["detected_gap"]
+    assert result.resolution_status == expected["resolution_status"]
+    if "missing_evidence" in expected:
+        assert result.missing_evidence == expected["missing_evidence"]

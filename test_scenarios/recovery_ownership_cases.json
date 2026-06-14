@@ -1,0 +1,110 @@
+[
+  {
+    "case_id": "non_production_allows",
+    "name": "Non-production action allows",
+    "action": {
+      "action_id": "case_nonprod_001",
+      "actor_id": "release-agent",
+      "action_type": "deploy",
+      "target": "payments-api",
+      "environment": "staging",
+      "timestamp": "2026-06-14T10:15:00-07:00",
+      "rollback_owner": null,
+      "support_owner": null,
+      "rollback_plan": null,
+      "reversibility": "medium"
+    },
+    "expected": {
+      "final_decision": "allow",
+      "detected_gap": null,
+      "resolution_status": "not_applicable"
+    }
+  },
+  {
+    "case_id": "production_missing_recovery_evidence_asks",
+    "name": "Production missing recovery evidence asks",
+    "action": {
+      "action_id": "case_missing_001",
+      "actor_id": "release-agent",
+      "action_type": "deploy",
+      "target": "payments-api",
+      "environment": "production",
+      "timestamp": "2026-06-14T10:15:00-07:00",
+      "rollback_owner": null,
+      "support_owner": null,
+      "rollback_plan": null,
+      "reversibility": "medium"
+    },
+    "expected": {
+      "final_decision": "ask",
+      "detected_gap": "recovery_ownership_gap",
+      "missing_evidence": ["rollback_owner", "support_owner", "rollback_plan"],
+      "resolution_status": "unresolved"
+    }
+  },
+  {
+    "case_id": "production_with_recovery_evidence_allows",
+    "name": "Production with recovery evidence allows",
+    "action": {
+      "action_id": "case_present_001",
+      "actor_id": "release-agent",
+      "action_type": "deploy",
+      "target": "payments-api",
+      "environment": "production",
+      "timestamp": "2026-06-14T10:15:00-07:00",
+      "rollback_owner": "jane@example.com",
+      "support_owner": "sre-oncall",
+      "rollback_plan": "https://runbooks.example.com/payments-api/rollback",
+      "reversibility": "medium"
+    },
+    "expected": {
+      "final_decision": "allow",
+      "detected_gap": null,
+      "resolution_status": "not_applicable"
+    }
+  },
+  {
+    "case_id": "after_hours_low_reversibility_missing_evidence_escalates",
+    "name": "After-hours low-reversibility missing evidence escalates",
+    "action": {
+      "action_id": "case_escalate_001",
+      "actor_id": "release-agent",
+      "action_type": "deploy",
+      "target": "payments-api",
+      "environment": "production",
+      "timestamp": "2026-06-14T18:15:00-07:00",
+      "rollback_owner": null,
+      "support_owner": null,
+      "rollback_plan": null,
+      "reversibility": "low"
+    },
+    "expected": {
+      "final_decision": "escalate",
+      "detected_gap": "recovery_ownership_gap",
+      "missing_evidence": ["rollback_owner", "support_owner", "rollback_plan"],
+      "resolution_status": "escalated"
+    }
+  },
+  {
+    "case_id": "production_partial_evidence_asks",
+    "name": "Production with partial evidence asks",
+    "action": {
+      "action_id": "case_partial_001",
+      "actor_id": "release-agent",
+      "action_type": "deploy",
+      "target": "payments-api",
+      "environment": "production",
+      "timestamp": "2026-06-14T10:15:00-07:00",
+      "rollback_owner": "jane@example.com",
+      "support_owner": null,
+      "rollback_plan": "https://runbooks.example.com/payments-api/rollback",
+      "reversibility": "medium"
+    },
+    "expected": {
+      "final_decision": "ask",
+      "detected_gap": "recovery_ownership_gap",
+      "missing_evidence": ["support_owner"],
+      "resolution_status": "unresolved"
+    }
+  }
+]
