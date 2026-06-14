@@ -1,8 +1,8 @@
 # Uh-Huh Runtime V0.1
 
-**Prototype status:** this is a local CLI prototype, not production software. It has no web UI, no hosted service, no database, and no real integrations. V0.1 exists only to prove the first control-gap workflow.
+**Prototype status:** this is a local prototype, not production software. It has a CLI demo and a lightweight Streamlit UI, but no hosted service, no database, and no real integrations. V0.1 exists only to prove the first control-gap workflow.
 
-Uh-Huh Runtime V0.1 is a CLI demo for one control gap:
+Uh-Huh Runtime V0.1 is a demo for one control gap:
 
 > **Recovery Ownership Gap:** a consequential production action lacks a named owner for rollback, support, recovery, or remediation.
 
@@ -26,6 +26,28 @@ powershell -ExecutionPolicy Bypass -File .\demo.ps1
 ```
 
 This runs three scenarios.
+
+## Streamlit UI
+
+For a non-technical walkthrough, run:
+
+```powershell
+streamlit run app.py
+```
+
+The UI presents:
+
+- Action
+- Detected Control Gap
+- Minimum Useful Question
+- Resolution
+- Final Decision
+
+It includes the same three demo scenarios:
+
+- Missing owner -> `ask`
+- Supplied owner -> `allow`
+- Existing owner -> `allow`
 
 ### Scenario A: Missing Owner
 
@@ -143,6 +165,7 @@ Each audit record includes:
 ## Project Structure
 
 ```text
+app.py          # Streamlit UI demo
 uh_huh_runtime/
   cli.py        # command-line entry point
   runtime.py    # detection, intervention selection, audit writing
