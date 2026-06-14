@@ -1,0 +1,7 @@
+start,end,asset,narration
+00:00,00:08,01_title.png,"Uh-Huh Runtime is a governance prototype for AI agents before they take consequential actions. This first version focuses on one control gap: recovery ownership."
+00:08,00:30,02_missing_owner.png,"Before an agent deploys to production, Uh-Huh checks whether someone owns rollback and support coverage if the deploy fails. In the first scenario, the agent proposes a production deploy with no owners or rollback plan."
+00:30,00:45,03_supplied_owner.png,"Uh-Huh does not produce a vague risk score. It detects a specific control gap and asks the minimum useful question. We answer that question by supplying an owner and rollback plan."
+00:45,00:57,04_existing_owner.png,"With the control gap resolved, Uh-Huh allows the action. If the action already includes recovery ownership evidence, Uh-Huh allows it immediately."
+00:57,01:12,05_audit.png,"Every decision writes an audit record: the action, detected gap, missing evidence, question, resolution evidence, and final decision."
+01:12,01:20,06_close.png,"That is the core proof of V0.1: control gap detected, minimum useful question asked, evidence supplied, action allowed."

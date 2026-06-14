@@ -1,0 +1,63 @@
+﻿Uh-Huh Runtime V0.1 Demo
+One control gap: Recovery Ownership Gap
+
+Scenario A: Production deploy missing recovery ownership
+COMMAND: python -m uh_huh_runtime.cli data/action_missing_recovery_owner.json --audit-ledger docs/demo/recording_audit.jsonl
+{
+  "decision": "ask",
+  "detected_gap": "recovery_ownership_gap",
+  "missing_evidence": [
+    "rollback_owner",
+    "support_owner",
+    "rollback_plan"
+  ],
+  "question_asked": "Who owns rollback and support coverage if this fails?",
+  "resolution_status": "unresolved",
+  "resolution_evidence": [],
+  "final_decision": "ask",
+  "rationale": "Production action lacks named rollback or support ownership."
+}
+
+
+Scenario B: User supplies owner and rollback plan
+COMMAND: python -m uh_huh_runtime.cli data/action_missing_recovery_owner.json --owner jane@example.com --rollback-plan https://runbooks.example.com/payments-api/rollback --audit-ledger docs/demo/recording_audit.jsonl
+{
+  "decision": "allow",
+  "detected_gap": null,
+  "missing_evidence": [],
+  "question_asked": null,
+  "resolution_status": "resolved",
+  "resolution_evidence": [
+    "rollback_owner:jane@example.com",
+    "support_owner:jane@example.com",
+    "rollback_plan:https://runbooks.example.com/payments-api/rollback"
+  ],
+  "final_decision": "allow",
+  "rationale": "Production action has rollback and support ownership evidence."
+}
+
+
+Scenario C: Existing recovery ownership evidence
+COMMAND: python -m uh_huh_runtime.cli data/action_with_recovery_owner.json --audit-ledger docs/demo/recording_audit.jsonl
+{
+  "decision": "allow",
+  "detected_gap": null,
+  "missing_evidence": [],
+  "question_asked": null,
+  "resolution_status": "not_applicable",
+  "resolution_evidence": [
+    "rollback_owner:jane@example.com",
+    "support_owner:sre-oncall",
+    "rollback_plan:https://runbooks.example.com/payments-api/rollback"
+  ],
+  "final_decision": "allow",
+  "rationale": "Production action has rollback and support ownership evidence."
+}
+
+
+Audit ledger
+COMMAND: Get-Content docs/demo/recording_audit.jsonl
+{"action_id": "act_prod_001", "action_snapshot": {"action_id": "act_prod_001", "action_type": "deploy", "actor_id": "release-agent", "environment": "production", "reversibility": "medium", "rollback_owner": null, "rollback_plan": null, "support_owner": null, "target": "payments-api", "timestamp": "2026-06-14T10:15:00-07:00"}, "actor_id": "release-agent", "detected_gap": "recovery_ownership_gap", "final_decision": "ask", "missing_evidence": ["rollback_owner", "support_owner", "rollback_plan"], "question_asked": "Who owns rollback and support coverage if this fails?", "resolution_evidence": [], "resolution_status": "unresolved", "timestamp": "2026-06-14T17:11:05.739640+00:00"}
+{"action_id": "act_prod_001", "action_snapshot": {"action_id": "act_prod_001", "action_type": "deploy", "actor_id": "release-agent", "environment": "production", "reversibility": "medium", "rollback_owner": "jane@example.com", "rollback_plan": "https://runbooks.example.com/payments-api/rollback", "support_owner": "jane@example.com", "target": "payments-api", "timestamp": "2026-06-14T10:15:00-07:00"}, "actor_id": "release-agent", "detected_gap": null, "final_decision": "allow", "missing_evidence": [], "question_asked": null, "resolution_evidence": ["rollback_owner:jane@example.com", "support_owner:jane@example.com", "rollback_plan:https://runbooks.example.com/payments-api/rollback"], "resolution_status": "resolved", "timestamp": "2026-06-14T17:11:05.910832+00:00"}
+{"action_id": "act_prod_002", "action_snapshot": {"action_id": "act_prod_002", "action_type": "deploy", "actor_id": "release-agent", "environment": "production", "reversibility": "medium", "rollback_owner": "jane@example.com", "rollback_plan": "https://runbooks.example.com/payments-api/rollback", "support_owner": "sre-oncall", "target": "payments-api", "timestamp": "2026-06-14T10:15:00-07:00"}, "actor_id": "release-agent", "detected_gap": null, "final_decision": "allow", "missing_evidence": [], "question_asked": null, "resolution_evidence": ["rollback_owner:jane@example.com", "support_owner:sre-oncall", "rollback_plan:https://runbooks.example.com/payments-api/rollback"], "resolution_status": "not_applicable", "timestamp": "2026-06-14T17:11:06.072478+00:00"}
+
