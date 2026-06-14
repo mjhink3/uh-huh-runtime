@@ -7,9 +7,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   CircleAlert,
-  ClipboardCheck,
   FileQuestion,
-  ShieldAlert,
   ShieldCheck,
   Triangle,
 } from "lucide-react";
@@ -17,12 +15,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Action, Evaluation, ResolutionInput } from "@/lib/runtime";
+import type { Action, Evaluation, ResolutionInput, Reversibility } from "@/lib/runtime";
 import { evaluateAction } from "@/lib/runtime";
 
 type Scenario = {
   label: string;
-  short: string;
+  command: string;
   description: string;
   action: Action;
 };
@@ -30,8 +28,8 @@ type Scenario = {
 const scenarios: Record<string, Scenario> = {
   recovery: {
     label: "Recovery Ownership Gap",
-    short: "Missing ownership",
-    description: "A production deploy is ready, but recovery ownership is absent.",
+    command: "deploy payments-api --prod",
+    description: "Production deploy missing recovery ownership.",
     action: {
       actionId: "act_prod_001",
       actorId: "release-agent",
@@ -44,8 +42,8 @@ const scenarios: Record<string, Scenario> = {
   },
   present: {
     label: "Ownership Evidence Present",
-    short: "Controls present",
-    description: "The deploy already carries rollback ownership and support evidence.",
+    command: "deploy payments-api --prod --rollback-ready",
+    description: "Production deploy with required recovery evidence.",
     action: {
       actionId: "act_prod_002",
       actorId: "release-agent",
@@ -61,8 +59,8 @@ const scenarios: Record<string, Scenario> = {
   },
   afterHours: {
     label: "After-Hours Production Change",
-    short: "Escalation pressure",
-    description: "A low-reversibility after-hours deploy is missing recovery evidence.",
+    command: "deploy payments-api --prod --after-hours",
+    description: "Low-reversibility production change after hours.",
     action: {
       actionId: "act_prod_003",
       actorId: "release-agent",
@@ -81,20 +79,43 @@ const evidenceLabels: Record<string, string> = {
   rollback_plan: "Rollback plan",
 };
 
+const CUSTOM_KEY = "custom";
+
+const defaultCustomAction: Action = {
+  actionId: "act_custom_001",
+  actorId: "custom-agent",
+  actionType: "deploy",
+  target: "inventory-api",
+  environment: "production",
+  timestamp: "2026-06-14T16:00:00-07:00",
+  reversibility: "medium",
+};
+
 export default function Home() {
   const [scenarioKey, setScenarioKey] = useState("recovery");
   const [rollbackOwner, setRollbackOwner] = useState("");
   const [supportOwner, setSupportOwner] = useState("");
   const [rollbackPlan, setRollbackPlan] = useState("");
   const [submittedEvidence, setSubmittedEvidence] = useState<ResolutionInput>({});
+  const [customDraft, setCustomDraft] = useState<Action>(defaultCustomAction);
+  const [evaluatedCustomAction, setEvaluatedCustomAction] =
+    useState<Action>(defaultCustomAction);
 
-  const scenario = scenarios[scenarioKey];
-  const initialEvaluation = useMemo(() => evaluateAction(scenario.action), [scenario.action]);
-  const evaluation = useMemo(
-    () => evaluateAction(scenario.action, submittedEvidence),
-    [scenario.action, submittedEvidence],
+  const isCustom = scenarioKey === CUSTOM_KEY;
+  const scenario = isCustom ? customScenario(evaluatedCustomAction) : scenarios[scenarioKey];
+  const activeAction = isCustom ? evaluatedCustomAction : scenario.action;
+  const initialEvaluation = useMemo(
+    () => evaluateAction(isCustom ? activeAction : scenario.action),
+    [activeAction, isCustom, scenario.action],
   );
-  const hasSubmittedEvidence = Object.values(submittedEvidence).some((value) => value?.trim());
+  const evaluation = useMemo(
+    () => (isCustom ? evaluateAction(activeAction) : evaluateAction(scenario.action, submittedEvidence)),
+    [activeAction, isCustom, scenario.action, submittedEvidence],
+  );
+  const hasSubmittedEvidence = isCustom
+    ? hasRecoveryEvidence(activeAction)
+    : Object.values(submittedEvidence).some((value) => value?.trim());
+  const state = consoleState(evaluation, initialEvaluation, hasSubmittedEvidence);
 
   function submitEvidence() {
     setSubmittedEvidence({
@@ -116,546 +137,327 @@ export default function Home() {
     clearEvidence();
   }
 
+  function updateCustomAction<K extends keyof Action>(key: K, value: Action[K]) {
+    setCustomDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function evaluateCustomAction() {
+    setEvaluatedCustomAction(normalizeCustomAction(customDraft));
+  }
+
+  function resetCustomAction() {
+    setCustomDraft(defaultCustomAction);
+    setEvaluatedCustomAction(defaultCustomAction);
+  }
+
+  const advancedPayload = isCustom
+    ? {
+        mode: "custom",
+        input: { draftAction: customDraft, evaluatedAction: activeAction },
+        output: evaluation,
+      }
+    : {
+        mode: "scenario",
+        input: { action: scenario.action, submittedEvidence },
+        output: evaluation,
+      };
+
   return (
-    <main className="min-h-screen overflow-hidden">
-      <BrandShell>
-        <Hero />
+    <main className="h-screen overflow-hidden bg-background text-foreground">
+      <div className="console-vignette mx-auto flex h-full max-w-[1800px] flex-col gap-4 px-5 py-4">
+        <ConsoleHeader state={state} />
 
-        <section className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <ScenarioRail active={scenarioKey} onSelect={selectScenario} />
-
-          <div className="space-y-6">
-            <DecisionStrip
-              evaluation={evaluation}
-              initialEvaluation={initialEvaluation}
-              hasSubmittedEvidence={hasSubmittedEvidence}
-            />
-            <CheckpointLine evaluation={evaluation} hasSubmittedEvidence={hasSubmittedEvidence} />
-            <DemoStage
-              scenario={scenario}
-              evaluation={evaluation}
-              hasSubmittedEvidence={hasSubmittedEvidence}
-              rollbackOwner={rollbackOwner}
-              supportOwner={supportOwner}
-              rollbackPlan={rollbackPlan}
-              onRollbackOwner={setRollbackOwner}
-              onSupportOwner={setSupportOwner}
-              onRollbackPlan={setRollbackPlan}
-              onSubmit={submitEvidence}
-              onClear={clearEvidence}
-            />
-            <AdvancedDetails
-              action={scenario.action}
-              submittedEvidence={submittedEvidence}
-              evaluation={evaluation}
-            />
-          </div>
+        <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[0.82fr_1.46fr_0.9fr]">
+          <PausePanel
+            active={scenarioKey}
+            scenario={scenario}
+            isCustom={isCustom}
+            customDraft={customDraft}
+            evaluation={evaluation}
+            onSelect={selectScenario}
+            onCustomChange={updateCustomAction}
+          />
+          <QuestionPanel evaluation={evaluation} state={state} />
+          <ProceedPanel
+            evaluation={evaluation}
+            state={state}
+            hasSubmittedEvidence={hasSubmittedEvidence}
+            rollbackOwner={isCustom ? customDraft.rollbackOwner ?? "" : rollbackOwner}
+            supportOwner={isCustom ? customDraft.supportOwner ?? "" : supportOwner}
+            rollbackPlan={isCustom ? customDraft.rollbackPlan ?? "" : rollbackPlan}
+            onRollbackOwner={(value) =>
+              isCustom ? updateCustomAction("rollbackOwner", value) : setRollbackOwner(value)
+            }
+            onSupportOwner={(value) =>
+              isCustom ? updateCustomAction("supportOwner", value) : setSupportOwner(value)
+            }
+            onRollbackPlan={(value) =>
+              isCustom ? updateCustomAction("rollbackPlan", value) : setRollbackPlan(value)
+            }
+            onSubmit={isCustom ? evaluateCustomAction : submitEvidence}
+            onClear={isCustom ? resetCustomAction : clearEvidence}
+            isCustom={isCustom}
+          />
         </section>
 
-        <BroaderUse />
-      </BrandShell>
+        <ExecutionSpine
+          action={activeAction}
+          evaluation={evaluation}
+          advancedPayload={advancedPayload}
+          state={state}
+        />
+      </div>
     </main>
   );
 }
 
-function BrandShell({ children }: { children: ReactNode }) {
+function ConsoleHeader({ state }: { state: ReturnType<typeof consoleState> }) {
   return (
-    <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-10 px-5 py-5 md:px-8 lg:px-10">
-      <div className="pointer-events-none absolute left-1/2 top-0 h-[620px] w-[620px] -translate-x-1/2 rounded-full bg-white/[0.035] blur-3xl" />
-      <header className="relative z-10 flex items-center justify-between border-b border-border/60 pb-5">
-        <div className="flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl border border-white/[0.12] bg-white p-1.5 shadow-brand">
-            <Image
-              src="/brand/uh-huh-runtime-logo.png"
-              alt="Uh-Huh Runtime logo"
-              width={96}
-              height={96}
-              priority
-              className="h-full w-full object-contain"
-            />
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-foreground">Uh-Huh Runtime</div>
-            <div className="text-xs text-muted-foreground">Pause. Question. Proceed.</div>
-          </div>
+    <header className="console-frame flex h-[76px] shrink-0 items-center justify-between px-4 md:px-5">
+      <div className="flex items-center gap-3">
+        <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl border border-white/[0.12] bg-white p-1.5">
+          <Image
+            src="/brand/uh-huh-runtime-logo.png"
+            alt="Uh-Huh Runtime logo"
+            width={96}
+            height={96}
+            priority
+            className="h-full w-full object-contain"
+          />
         </div>
-        <Badge tone="neutral">V0.1 public demo</Badge>
-      </header>
-      <div className="relative z-10">{children}</div>
-    </div>
-  );
-}
-
-function Hero() {
-  return (
-    <section className="grid gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end lg:py-12">
-      <div className="max-w-4xl">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-warning">
-          The question before execution
-        </p>
-        <h1 className="mt-5 max-w-4xl text-5xl font-semibold leading-[0.98] tracking-normal text-foreground md:text-7xl">
-          Before an agent acts, close the missing control.
-        </h1>
-        <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
-          Uh-Huh catches missing operational controls before consequential actions proceed.
-          Not more approvals. Better questions.
-        </p>
-      </div>
-      <div className="rounded-[2rem] border border-border/80 bg-card/[0.72] p-5 shadow-brand backdrop-blur">
-        <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          <span>Runtime motif</span>
-          <Triangle className="h-4 w-4 text-muted-foreground" />
-        </div>
-        <div className="mt-8 flex items-center gap-3">
-          <MotifStep label="Pause" tone="neutral" />
-          <div className="h-px flex-1 bg-border" />
-          <div className="relative grid h-12 w-12 place-items-center rounded-full border border-warning/50 bg-warning/10 text-warning shadow-question">
-            <FileQuestion className="h-5 w-5" />
-            <span className="absolute -bottom-6 text-xs font-semibold">Question</span>
+        <div>
+          <div className="text-sm font-semibold tracking-[0.08em]">UH-HUH RUNTIME</div>
+          <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+            Execution checkpoint
           </div>
-          <div className="h-px flex-1 bg-border" />
-          <MotifStep label="Proceed" tone="green" />
-        </div>
-        <div className="mt-10 rounded-2xl border border-warning/25 bg-warning/[0.07] p-4 text-sm leading-6 text-foreground/[0.86]">
-          The demo pauses only when recovery ownership is missing, then asks for the
-          evidence needed to continue.
         </div>
       </div>
-    </section>
+
+      <div className="hidden items-center gap-3 md:flex">
+        <PhaseTag label="Pause" active={state.phase === "pause"} tone="gray" />
+        <Connector active={state.phase !== "proceed"} tone="amber" />
+        <PhaseTag label="Question" active={state.phase === "question"} tone="amber" />
+        <Connector active={state.phase === "proceed"} tone="green" />
+        <PhaseTag label="Proceed" active={state.phase === "proceed"} tone="green" />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className={cn("status-dot", state.dotClass)} />
+        <span className={cn("text-sm font-semibold uppercase tracking-[0.18em]", state.textClass)}>
+          {state.decision}
+        </span>
+      </div>
+    </header>
   );
 }
 
-function MotifStep({ label, tone }: { label: string; tone: "neutral" | "green" }) {
-  return (
-    <div
-      className={cn(
-        "grid h-12 w-12 place-items-center rounded-full border text-xs font-semibold",
-        tone === "green"
-          ? "border-success/40 bg-success/10 text-success"
-          : "border-border bg-muted/50 text-muted-foreground",
-      )}
-      aria-label={label}
-      title={label}
-    >
-      {label.slice(0, 1)}
-    </div>
-  );
-}
-
-function ScenarioRail({
+function PausePanel({
   active,
+  scenario,
+  isCustom,
+  customDraft,
+  evaluation,
   onSelect,
+  onCustomChange,
 }: {
   active: string;
+  scenario: Scenario;
+  isCustom: boolean;
+  customDraft: Action;
+  evaluation: Evaluation;
   onSelect: (key: string) => void;
+  onCustomChange: <K extends keyof Action>(key: K, value: Action[K]) => void;
 }) {
   return (
-    <aside className="rounded-[2rem] border border-border/80 bg-card/[0.65] p-4 shadow-brand backdrop-blur lg:sticky lg:top-6 lg:self-start">
-      <div className="px-2 pb-4">
-        <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          Choose a run
-        </div>
-        <h2 className="mt-2 text-xl font-semibold">Three ways the same runtime behaves.</h2>
-      </div>
-      <div className="space-y-2">
-        {Object.entries(scenarios).map(([key, scenario], index) => (
+    <section className="console-frame min-h-0 overflow-hidden p-4">
+      <PanelLabel eyebrow="01" title="Pause" />
+
+      <div className="mt-5 space-y-2">
+        {Object.entries(scenarios).map(([key, item]) => (
           <button
             key={key}
             onClick={() => onSelect(key)}
             className={cn(
-              "group w-full rounded-2xl border p-4 text-left transition",
+              "w-full border px-3 py-3 text-left transition",
               active === key
-                ? "border-white/[0.14] bg-muted/[0.62] shadow-brand"
-                : "border-transparent bg-transparent hover:border-border hover:bg-muted/35",
+                ? "border-warning/45 bg-warning/[0.08] text-foreground"
+                : "border-border/70 bg-[#111214] text-muted-foreground hover:border-white/20 hover:text-foreground",
             )}
           >
-            <div className="flex items-center gap-3">
-              <span
-                className={cn(
-                  "grid h-8 w-8 place-items-center rounded-full border text-xs font-semibold",
-                  active === key
-                    ? "border-warning/40 bg-warning/[0.10] text-warning"
-                    : "border-border text-muted-foreground",
-                )}
-              >
-                {index + 1}
-              </span>
-              <div>
-                <div className="text-sm font-semibold text-foreground">{scenario.label}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{scenario.short}</div>
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em]">{item.label}</span>
+              {active === key ? <Triangle className="h-3.5 w-3.5 text-warning" /> : null}
             </div>
+            <div className="mt-1 truncate font-mono text-xs">{item.command}</div>
           </button>
         ))}
-      </div>
-    </aside>
-  );
-}
-
-function DecisionStrip({
-  evaluation,
-  initialEvaluation,
-  hasSubmittedEvidence,
-}: {
-  evaluation: Evaluation;
-  initialEvaluation: Evaluation;
-  hasSubmittedEvidence: boolean;
-}) {
-  const state = decisionState(evaluation, initialEvaluation, hasSubmittedEvidence);
-  const Icon = state.icon;
-  return (
-    <section
-      className={cn(
-        "rounded-[2rem] border p-5 shadow-brand backdrop-blur",
-        state.containerClass,
-      )}
-    >
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex gap-4">
-          <div className={cn("grid h-12 w-12 place-items-center rounded-2xl border", state.iconClass)}>
-            <Icon className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-xl font-semibold">{state.title}</div>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-foreground/[0.78]">{state.body}</p>
-          </div>
-        </div>
-        <Badge tone={state.badgeTone}>{state.decision}</Badge>
-      </div>
-    </section>
-  );
-}
-
-function CheckpointLine({
-  evaluation,
-  hasSubmittedEvidence,
-}: {
-  evaluation: Evaluation;
-  hasSubmittedEvidence: boolean;
-}) {
-  const steps = [
-    { label: "Action", detail: "Proposed", status: "complete" },
-    {
-      label: "Control",
-      detail: evaluation.detectedGap ? "Gap found" : "Present",
-      status: evaluation.detectedGap ? "warning" : "complete",
-    },
-    {
-      label: "Question",
-      detail: evaluation.questionAsked ? "Asked" : "Skipped",
-      status: evaluation.questionAsked ? "warning" : "complete",
-    },
-    {
-      label: "Evidence",
-      detail:
-        evaluation.resolutionStatus === "resolved"
-          ? "Supplied"
-          : evaluation.resolutionStatus === "not_applicable"
-            ? "Already present"
-            : "Needed",
-      status:
-        evaluation.resolutionStatus === "resolved" || evaluation.resolutionStatus === "not_applicable"
-          ? "complete"
-          : hasSubmittedEvidence
-            ? "warning"
-            : "open",
-    },
-    {
-      label: "Decision",
-      detail: evaluation.finalDecision.toUpperCase(),
-      status:
-        evaluation.finalDecision === "allow"
-          ? "complete"
-          : evaluation.finalDecision === "escalate"
-            ? "danger"
-            : "warning",
-    },
-  ];
-
-  return (
-    <section className="rounded-[2rem] border border-border/80 bg-card/[0.54] p-5 backdrop-blur">
-      <div className="grid gap-4 md:grid-cols-5">
-        {steps.map((step, index) => (
-          <div key={step.label} className="relative">
-            {index < steps.length - 1 ? (
-              <div
-                className={cn(
-                  "absolute left-[2.15rem] top-4 hidden h-px w-[calc(100%-1.5rem)] md:block",
-                  step.status === "warning" ? "bg-dashed-gap" : "bg-border",
-                )}
-              />
-            ) : null}
-            <div className="relative z-10 flex items-center gap-3 md:block">
-              <span
-                className={cn(
-                  "grid h-8 w-8 place-items-center rounded-full border text-xs font-semibold",
-                  stepTone(step.status),
-                )}
-              >
-                {index + 1}
-              </span>
-              <div className="mt-0 md:mt-3">
-                <div className="text-sm font-semibold text-foreground">{step.label}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{step.detail}</div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function DemoStage({
-  scenario,
-  evaluation,
-  hasSubmittedEvidence,
-  rollbackOwner,
-  supportOwner,
-  rollbackPlan,
-  onRollbackOwner,
-  onSupportOwner,
-  onRollbackPlan,
-  onSubmit,
-  onClear,
-}: {
-  scenario: Scenario;
-  evaluation: Evaluation;
-  hasSubmittedEvidence: boolean;
-  rollbackOwner: string;
-  supportOwner: string;
-  rollbackPlan: string;
-  onRollbackOwner: (value: string) => void;
-  onSupportOwner: (value: string) => void;
-  onRollbackPlan: (value: string) => void;
-  onSubmit: () => void;
-  onClear: () => void;
-}) {
-  return (
-    <section className="grid gap-6 xl:grid-cols-[0.95fr_1.28fr]">
-      <div className="space-y-6">
-        <Panel eyebrow="Proposed action" title={scenario.action.target}>
-          <p className="mb-5 text-sm leading-6 text-muted-foreground">{scenario.description}</p>
-          <dl className="space-y-3">
-            <Detail label="Actor" value={scenario.action.actorId} />
-            <Detail label="Action" value={scenario.action.actionType} />
-            <Detail label="Environment" value={scenario.action.environment} />
-            <Detail label="Reversibility" value={scenario.action.reversibility} />
-            <Detail label="Timestamp" value={compactTime(scenario.action.timestamp)} />
-          </dl>
-        </Panel>
-
-        <Panel eyebrow="Control gap" title={evaluation.detectedGap ? "Recovery ownership" : "Required controls present"}>
-          {evaluation.missingEvidence.length ? (
-            <>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Execution is paused because Uh-Huh cannot find named recovery ownership.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {evaluation.missingEvidence.map((item) => (
-                  <Badge tone="amber" key={item}>
-                    {evidenceLabels[item] ?? item}
-                  </Badge>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="rounded-2xl border border-success/30 bg-success/[0.08] p-4 text-sm leading-6 text-success">
-              Rollback ownership, support ownership, and rollback plan are present.
-            </div>
+        <button
+          onClick={() => onSelect(CUSTOM_KEY)}
+          className={cn(
+            "w-full border px-3 py-3 text-left transition",
+            active === CUSTOM_KEY
+              ? "border-warning/45 bg-warning/[0.08] text-foreground"
+              : "border-border/70 bg-[#111214] text-muted-foreground hover:border-white/20 hover:text-foreground",
           )}
-        </Panel>
-      </div>
-
-      <div className="space-y-6">
-        <QuestionPanel evaluation={evaluation} />
-        <EvidenceAndDecision
-          evaluation={evaluation}
-          hasSubmittedEvidence={hasSubmittedEvidence}
-          rollbackOwner={rollbackOwner}
-          supportOwner={supportOwner}
-          rollbackPlan={rollbackPlan}
-          onRollbackOwner={onRollbackOwner}
-          onSupportOwner={onSupportOwner}
-          onRollbackPlan={onRollbackPlan}
-          onSubmit={onSubmit}
-          onClear={onClear}
-        />
-      </div>
-    </section>
-  );
-}
-
-function QuestionPanel({ evaluation }: { evaluation: Evaluation }) {
-  return (
-    <section className="relative overflow-hidden rounded-[2rem] border border-warning/30 bg-question p-7 shadow-question">
-      <div className="absolute -right-12 -top-16 h-48 w-48 rounded-full border border-warning/20" />
-      <div className="relative">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-warning">
-          <FileQuestion className="h-4 w-4" />
-          Minimum useful question
-        </div>
-        <blockquote className="mt-5 max-w-2xl text-3xl font-semibold leading-tight text-foreground md:text-4xl">
-          {evaluation.questionAsked ?? "No question needed. The required controls are already present."}
-        </blockquote>
-        <p className="mt-5 max-w-xl text-sm leading-6 text-foreground/70">
-          The runtime does not ask for confidence theater. It asks for the missing
-          operational evidence that decides whether execution should continue.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function EvidenceAndDecision({
-  evaluation,
-  hasSubmittedEvidence,
-  rollbackOwner,
-  supportOwner,
-  rollbackPlan,
-  onRollbackOwner,
-  onSupportOwner,
-  onRollbackPlan,
-  onSubmit,
-  onClear,
-}: {
-  evaluation: Evaluation;
-  hasSubmittedEvidence: boolean;
-  rollbackOwner: string;
-  supportOwner: string;
-  rollbackPlan: string;
-  onRollbackOwner: (value: string) => void;
-  onSupportOwner: (value: string) => void;
-  onRollbackPlan: (value: string) => void;
-  onSubmit: () => void;
-  onClear: () => void;
-}) {
-  return (
-    <section className="grid gap-6 lg:grid-cols-[1fr_0.82fr]">
-      <Panel eyebrow="Evidence" title="Close the gap">
-        <div className="space-y-4">
-          <Field label="Rollback owner">
-            <Input
-              value={rollbackOwner}
-              onChange={(event) => onRollbackOwner(event.target.value)}
-              placeholder="jane@example.com"
-            />
-          </Field>
-          <Field label="Support owner">
-            <Input
-              value={supportOwner}
-              onChange={(event) => onSupportOwner(event.target.value)}
-              placeholder="sre-oncall"
-            />
-          </Field>
-          <Field label="Rollback plan">
-            <Input
-              value={rollbackPlan}
-              onChange={(event) => onRollbackPlan(event.target.value)}
-              placeholder="https://runbooks.example.com/rollback"
-            />
-          </Field>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button onClick={onSubmit} className="flex-1">
-              Supply evidence
-            </Button>
-            <button
-              onClick={onClear}
-              className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:border-white/25 hover:text-foreground"
-            >
-              Clear
-            </button>
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-semibold uppercase tracking-[0.16em]">
+              Custom Action
+            </span>
+            {active === CUSTOM_KEY ? <Triangle className="h-3.5 w-3.5 text-warning" /> : null}
           </div>
-        </div>
-      </Panel>
+          <div className="mt-1 truncate font-mono text-xs">edit proposed execution</div>
+        </button>
+      </div>
 
-      <Panel eyebrow="Decision" title={evaluation.finalDecision.toUpperCase()}>
-        <div className="space-y-4">
-          <DecisionBadge evaluation={evaluation} />
-          <p className="text-sm leading-6 text-muted-foreground">{evaluation.rationale}</p>
-          {hasSubmittedEvidence && evaluation.finalDecision === "allow" ? (
-            <div className="rounded-2xl border border-success/35 bg-success/[0.08] p-4 text-sm font-semibold text-success">
-              Control Gap Detected -&gt; Evidence Supplied -&gt; Action Allowed
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-border bg-muted/[0.35] p-4 text-sm leading-6 text-muted-foreground">
-              Resolution status:{" "}
-              <span className="font-semibold text-foreground">{evaluation.resolutionStatus}</span>
-            </div>
-          )}
+      <div className="mt-6 border-t border-border pt-5">
+        <div className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+          Proposed action
         </div>
-      </Panel>
+        {isCustom ? (
+          <CustomActionForm action={customDraft} onChange={onCustomChange} />
+        ) : (
+          <div className="mt-3 rounded-xl border border-border bg-[#0f1012] p-4">
+            <div className="font-mono text-lg text-foreground">{scenario.command}</div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {scenario.description}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {!isCustom ? (
+        <dl className="mt-5 space-y-3">
+          <Readout label="Actor" value={scenario.action.actorId} />
+          <Readout label="Target" value={scenario.action.target} />
+          <Readout label="Environment" value={scenario.action.environment} />
+          <Readout label="Reversibility" value={scenario.action.reversibility} />
+        </dl>
+      ) : null}
+
+      <div className="mt-5 rounded-xl border border-border bg-muted/[0.22] p-3">
+        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Control gap</div>
+        <div className="mt-2 text-sm font-semibold">
+          {evaluation.detectedGap ? "Recovery ownership missing" : "Required controls present"}
+        </div>
+      </div>
     </section>
   );
 }
 
-function DecisionBadge({ evaluation }: { evaluation: Evaluation }) {
-  if (evaluation.finalDecision === "allow") {
-    return (
-      <Badge tone="green" className="gap-2">
-        <CheckCircle2 className="h-3.5 w-3.5" />
-        Action may proceed
-      </Badge>
-    );
-  }
-  if (evaluation.finalDecision === "escalate") {
-    return (
-      <Badge tone="red" className="gap-2">
-        <ShieldAlert className="h-3.5 w-3.5" />
-        Escalation required
-      </Badge>
-    );
-  }
-  return (
-    <Badge tone="amber" className="gap-2">
-      <CircleAlert className="h-3.5 w-3.5" />
-      Ask before execution
-    </Badge>
-  );
-}
-
-function AdvancedDetails({
+function CustomActionForm({
   action,
-  submittedEvidence,
-  evaluation,
+  onChange,
 }: {
   action: Action;
-  submittedEvidence: ResolutionInput;
-  evaluation: Evaluation;
+  onChange: <K extends keyof Action>(key: K, value: Action[K]) => void;
 }) {
   return (
-    <details className="rounded-[1.5rem] border border-border/75 bg-card/[0.45] p-5 backdrop-blur">
-      <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">
-        Advanced technical details
-      </summary>
-      <pre className="mt-4 max-h-[420px] overflow-auto rounded-2xl border border-border bg-[#040813] p-4 text-xs leading-6 text-muted-foreground">
-        {JSON.stringify({ action, submittedEvidence, evaluation }, null, 2)}
-      </pre>
-    </details>
+    <div className="mt-3 space-y-3 rounded-xl border border-border bg-[#0f1012] p-4">
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Actor">
+          <Input
+            value={action.actorId}
+            onChange={(event) => onChange("actorId", event.target.value)}
+            placeholder="release-agent"
+            className="h-9"
+          />
+        </Field>
+        <Field label="Action">
+          <Input
+            value={action.actionType}
+            onChange={(event) => onChange("actionType", event.target.value)}
+            placeholder="deploy"
+            className="h-9"
+          />
+        </Field>
+      </div>
+      <Field label="Target">
+        <Input
+          value={action.target}
+          onChange={(event) => onChange("target", event.target.value)}
+          placeholder="payments-api"
+          className="h-9"
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Environment">
+          <SelectInput
+            value={action.environment}
+            onChange={(value) => onChange("environment", value)}
+            options={["development", "staging", "production"]}
+          />
+        </Field>
+        <Field label="Reversibility">
+          <SelectInput
+            value={action.reversibility}
+            onChange={(value) => onChange("reversibility", value as Reversibility)}
+            options={["high", "medium", "low"]}
+          />
+        </Field>
+      </div>
+      <Field label="Timestamp">
+        <Input
+          value={action.timestamp}
+          onChange={(event) => onChange("timestamp", event.target.value)}
+          placeholder="2026-06-14T16:00:00-07:00"
+          className="h-9 font-mono text-xs"
+        />
+      </Field>
+    </div>
   );
 }
 
-function BroaderUse() {
-  const items = [
-    ["Career change", "What control is missing before a consequential role move?"],
-    ["Major purchase", "What evidence would make this decision reversible?"],
-    ["Travel/lifestyle move", "Who owns recovery if the plan changes under pressure?"],
-  ];
+function QuestionPanel({
+  evaluation,
+  state,
+}: {
+  evaluation: Evaluation;
+  state: ReturnType<typeof consoleState>;
+}) {
   return (
-    <section className="pb-8 pt-4">
-      <div className="rounded-[2rem] border border-border/70 bg-card/[0.42] p-6 backdrop-blur md:p-8">
-        <div className="grid gap-6 md:grid-cols-[0.9fr_1.4fr] md:items-start">
-          <div>
-            <Badge tone="neutral">Broader use</Badge>
-            <h2 className="mt-4 text-2xl font-semibold">The primitive travels.</h2>
+    <section className="console-frame question-console relative flex min-h-0 flex-col overflow-hidden p-5">
+      <div className="absolute right-6 top-6 opacity-25">
+        <Triangle className="h-28 w-28 text-warning" strokeWidth={0.7} />
+      </div>
+      <div className="relative z-10 flex items-start justify-between">
+        <PanelLabel eyebrow="02" title="Question" />
+        <Badge tone={state.badgeTone}>{state.label}</Badge>
+      </div>
+
+      <div className="relative z-10 grid flex-1 place-items-center py-8">
+        <div className="w-full max-w-4xl">
+          <div className="mb-6 flex items-center gap-3">
+            <span className={cn("status-dot", state.dotClass)} />
+            <span className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
+              Minimum useful question
+            </span>
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {items.map(([title, copy]) => (
-              <div key={title} className="border-l border-border pl-4">
-                <div className="font-semibold">{title}</div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{copy}</p>
-              </div>
-            ))}
+
+          <div className="question-box">
+            <FileQuestion className="mb-7 h-10 w-10 text-warning" />
+            <h1 className="text-balance text-5xl font-semibold leading-[1.02] tracking-normal text-foreground 2xl:text-7xl">
+              {evaluation.questionAsked ??
+                "No question needed. Required controls are already present."}
+            </h1>
+          </div>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            <Signal
+              label="Observation"
+              value={evaluation.detectedGap ? "Production action" : "Evidence found"}
+              tone="gray"
+            />
+            <Signal
+              label="Gap"
+              value={
+                evaluation.missingEvidence.length
+                  ? `${evaluation.missingEvidence.length} controls missing`
+                  : "Closed"
+              }
+              tone={evaluation.missingEvidence.length ? "amber" : "green"}
+            />
+            <Signal label="Intervention" value={state.decision} tone={state.signalTone} />
           </div>
         </div>
       </div>
@@ -663,39 +465,245 @@ function BroaderUse() {
   );
 }
 
-function Panel({
-  eyebrow,
-  title,
-  children,
-  className,
+function ProceedPanel({
+  evaluation,
+  state,
+  hasSubmittedEvidence,
+  isCustom,
+  rollbackOwner,
+  supportOwner,
+  rollbackPlan,
+  onRollbackOwner,
+  onSupportOwner,
+  onRollbackPlan,
+  onSubmit,
+  onClear,
 }: {
-  eyebrow: string;
-  title: string;
-  children: ReactNode;
-  className?: string;
+  evaluation: Evaluation;
+  state: ReturnType<typeof consoleState>;
+  hasSubmittedEvidence: boolean;
+  isCustom: boolean;
+  rollbackOwner: string;
+  supportOwner: string;
+  rollbackPlan: string;
+  onRollbackOwner: (value: string) => void;
+  onSupportOwner: (value: string) => void;
+  onRollbackPlan: (value: string) => void;
+  onSubmit: () => void;
+  onClear: () => void;
+}) {
+  const DecisionIcon = state.icon;
+  return (
+    <section className="console-frame min-h-0 overflow-hidden p-4">
+      <PanelLabel eyebrow="03" title="Proceed" />
+
+      <div className="mt-5 rounded-xl border border-border bg-[#101113] p-4">
+        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          Required evidence
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {evaluation.missingEvidence.length ? (
+            evaluation.missingEvidence.map((item) => (
+              <Badge tone="amber" key={item}>
+                {evidenceLabels[item] ?? item}
+              </Badge>
+            ))
+          ) : (
+            <Badge tone="green">Recovery evidence present</Badge>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        <Field label="Rollback owner">
+          <Input
+            value={rollbackOwner}
+            onChange={(event) => onRollbackOwner(event.target.value)}
+            placeholder="jane@example.com"
+          />
+        </Field>
+        <Field label="Support owner">
+          <Input
+            value={supportOwner}
+            onChange={(event) => onSupportOwner(event.target.value)}
+            placeholder="sre-oncall"
+          />
+        </Field>
+        <Field label="Rollback plan">
+          <Input
+            value={rollbackPlan}
+            onChange={(event) => onRollbackPlan(event.target.value)}
+            placeholder="runbook URL"
+          />
+        </Field>
+      </div>
+
+      <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+        <Button onClick={onSubmit}>{isCustom ? "Evaluate action" : "Supply evidence"}</Button>
+        <button
+          onClick={onClear}
+          className="rounded-xl border border-border px-3 text-sm font-semibold text-muted-foreground transition hover:border-white/25 hover:text-foreground"
+        >
+          {isCustom ? "Reset custom action" : "Clear"}
+        </button>
+      </div>
+
+      <div className={cn("mt-5 rounded-xl border p-4", state.decisionClass)}>
+        <div className="flex items-center gap-2">
+          <DecisionIcon className="h-4 w-4" />
+          <div className="text-sm font-semibold uppercase tracking-[0.18em]">{state.label}</div>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-foreground/75">{state.body}</p>
+      </div>
+
+      {hasSubmittedEvidence && evaluation.finalDecision === "allow" ? (
+        <div className="mt-4 rounded-xl border border-success/35 bg-success/[0.08] p-3 text-sm font-semibold text-success">
+          Control gap closed. Execution may proceed.
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ExecutionSpine({
+  action,
+  evaluation,
+  advancedPayload,
+  state,
+}: {
+  action: Action;
+  evaluation: Evaluation;
+  advancedPayload: unknown;
+  state: ReturnType<typeof consoleState>;
 }) {
   return (
-    <section
+    <footer className="console-frame grid h-[132px] shrink-0 grid-cols-[1fr_auto] gap-4 overflow-hidden p-4">
+      <div className="grid min-w-0 gap-3 md:grid-cols-5">
+        <SpineStep label="Action" value={action.actionType} tone="gray" />
+        <SpineStep
+          label="Gap"
+          value={evaluation.detectedGap ? "Detected" : "Closed"}
+          tone={evaluation.detectedGap ? "amber" : "green"}
+        />
+        <SpineStep
+          label="Question"
+          value={evaluation.questionAsked ? "Required" : "Skipped"}
+          tone={evaluation.questionAsked ? "amber" : "green"}
+        />
+        <SpineStep
+          label="Evidence"
+          value={
+            evaluation.resolutionStatus === "resolved"
+              ? "Supplied"
+              : evaluation.resolutionStatus === "not_applicable"
+                ? "Present"
+                : "Missing"
+          }
+          tone={
+            evaluation.resolutionStatus === "resolved" ||
+            evaluation.resolutionStatus === "not_applicable"
+              ? "green"
+              : "amber"
+          }
+        />
+        <SpineStep label="Decision" value={state.decision} tone={state.signalTone} />
+      </div>
+
+      <details className="w-[280px] rounded-xl border border-border bg-[#101113] p-3">
+        <summary className="cursor-pointer font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          Advanced
+        </summary>
+        <pre className="mt-3 max-h-[74px] overflow-auto text-[10px] leading-4 text-muted-foreground">
+          {JSON.stringify(advancedPayload, null, 2)}
+        </pre>
+      </details>
+    </footer>
+  );
+}
+
+function PanelLabel({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div>
+      <div className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
+        {eyebrow}
+      </div>
+      <div className="mt-1 text-3xl font-semibold uppercase tracking-[0.08em]">{title}</div>
+    </div>
+  );
+}
+
+function PhaseTag({
+  label,
+  active,
+  tone,
+}: {
+  label: string;
+  active: boolean;
+  tone: "gray" | "amber" | "green";
+}) {
+  return (
+    <div
       className={cn(
-        "rounded-[2rem] border border-border/80 bg-card/[0.68] p-5 shadow-brand backdrop-blur",
-        className,
+        "rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em]",
+        active ? toneClass(tone, "active") : toneClass("gray", "quiet"),
       )}
     >
-      <div className="mb-5">
-        <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          {eyebrow}
-        </div>
-        <h3 className="mt-2 text-xl font-semibold tracking-normal text-foreground">{title}</h3>
+      {label}
+    </div>
+  );
+}
+
+function Connector({ active, tone }: { active: boolean; tone: "amber" | "green" }) {
+  return (
+    <div
+      className={cn(
+        "h-px w-12",
+        active ? (tone === "green" ? "bg-success/70" : "bg-warning/70") : "bg-border",
+      )}
+    />
+  );
+}
+
+function Signal({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "gray" | "amber" | "green" | "red";
+}) {
+  return (
+    <div className={cn("rounded-xl border p-3", toneClass(tone, "soft"))}>
+      <div className="font-mono text-[10px] uppercase tracking-[0.18em] opacity-70">{label}</div>
+      <div className="mt-2 text-sm font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function SpineStep({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "gray" | "amber" | "green" | "red";
+}) {
+  return (
+    <div className="min-w-0 border-l border-border pl-3">
+      <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        {label}
       </div>
-      {children}
-    </section>
+      <div className={cn("mt-2 truncate text-sm font-semibold", toneText(tone))}>{value}</div>
+    </div>
   );
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block space-y-2">
-      <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+    <label className="block space-y-1.5">
+      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </span>
       {children}
@@ -703,20 +711,42 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function SelectInput({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+}) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-3 last:border-0 last:pb-0">
-      <dt className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="h-9 w-full rounded-xl border border-border bg-[#101114] px-3 text-sm text-foreground outline-none transition focus:border-warning/60 focus:ring-2 focus:ring-warning/10"
+    >
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function Readout({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-2 last:border-0">
+      <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </dt>
-      <dd className="max-w-[62%] truncate text-right text-sm font-medium text-foreground">
-        {value}
-      </dd>
+      <dd className="truncate text-right text-sm font-semibold">{value}</dd>
     </div>
   );
 }
 
-function decisionState(
+function consoleState(
   evaluation: Evaluation,
   initialEvaluation: Evaluation,
   hasSubmittedEvidence: boolean,
@@ -727,58 +757,114 @@ function decisionState(
     evaluation.resolutionStatus === "resolved"
   ) {
     return {
-      title: "Gap resolved",
-      body: "Recovery ownership evidence is now attached to the action. Execution may proceed.",
+      phase: "proceed",
+      label: "Gap resolved",
       decision: "ALLOW",
+      body: "Recovery evidence is attached to the action record.",
       icon: CheckCircle2,
       badgeTone: "green" as const,
-      containerClass: "border-success/35 bg-success/[0.08]",
-      iconClass: "border-success/35 bg-success/10 text-success",
+      signalTone: "green" as const,
+      textClass: "text-success",
+      dotClass: "bg-success shadow-[0_0_16px_rgba(48,255,128,0.35)]",
+      decisionClass: "border-success/35 bg-success/[0.08] text-success",
     };
   }
 
   if (initialEvaluation.finalDecision === "allow" && evaluation.resolutionStatus === "not_applicable") {
     return {
-      title: "Required controls present",
-      body: "The action already includes rollback ownership, support ownership, and a rollback plan.",
+      phase: "proceed",
+      label: "Controls present",
       decision: "ALLOW",
+      body: "Rollback ownership, support ownership, and rollback plan are already present.",
       icon: ShieldCheck,
       badgeTone: "green" as const,
-      containerClass: "border-success/35 bg-success/[0.08]",
-      iconClass: "border-success/35 bg-success/10 text-success",
+      signalTone: "green" as const,
+      textClass: "text-success",
+      dotClass: "bg-success shadow-[0_0_16px_rgba(48,255,128,0.35)]",
+      decisionClass: "border-success/35 bg-success/[0.08] text-success",
     };
   }
 
   if (evaluation.finalDecision === "escalate") {
     return {
-      title: "Escalation required",
-      body: "This is after-hours, low-reversibility, and missing recovery ownership. Uh-Huh will not treat silence as approval.",
+      phase: "question",
+      label: "Escalation",
       decision: "ESCALATE",
+      body: "After-hours, low-reversibility, and missing recovery ownership. Escalation is required.",
       icon: AlertTriangle,
       badgeTone: "red" as const,
-      containerClass: "border-danger/35 bg-danger/[0.08]",
-      iconClass: "border-danger/35 bg-danger/10 text-danger",
+      signalTone: "red" as const,
+      textClass: "text-danger",
+      dotClass: "bg-danger shadow-[0_0_16px_rgba(248,113,113,0.28)]",
+      decisionClass: "border-danger/35 bg-danger/[0.08] text-danger",
     };
   }
 
   return {
-    title: "Control gap detected",
-    body: "The action is consequential and recovery ownership is missing. Ask the smallest question that closes the gap.",
+    phase: "question",
+    label: "Question required",
     decision: "ASK",
-    icon: ClipboardCheck,
+    body: "One missing control must be resolved before execution proceeds.",
+    icon: CircleAlert,
     badgeTone: "amber" as const,
-    containerClass: "border-warning/35 bg-warning/[0.08]",
-    iconClass: "border-warning/35 bg-warning/10 text-warning",
+    signalTone: "amber" as const,
+    textClass: "text-warning",
+    dotClass: "bg-warning shadow-[0_0_16px_rgba(245,158,11,0.3)]",
+    decisionClass: "border-warning/35 bg-warning/[0.08] text-warning",
   };
 }
 
-function stepTone(status: string): string {
-  if (status === "complete") return "border-success/35 bg-success/10 text-success";
-  if (status === "danger") return "border-danger/35 bg-danger/10 text-danger";
-  if (status === "warning") return "border-warning/35 bg-warning/10 text-warning";
-  return "border-border bg-muted/[0.45] text-muted-foreground";
+function toneClass(tone: "gray" | "amber" | "green" | "red", mode: "active" | "quiet" | "soft") {
+  if (tone === "green") return "border-success/35 bg-success/[0.08] text-success";
+  if (tone === "amber") return "border-warning/40 bg-warning/[0.08] text-warning";
+  if (tone === "red") return "border-danger/35 bg-danger/[0.08] text-danger";
+  return mode === "quiet"
+    ? "border-border bg-[#111214] text-muted-foreground"
+    : "border-border bg-muted/[0.35] text-foreground";
 }
 
-function compactTime(timestamp: string): string {
-  return timestamp.replace("T", " ").replace("-07:00", " PT");
+function toneText(tone: "gray" | "amber" | "green" | "red") {
+  if (tone === "green") return "text-success";
+  if (tone === "amber") return "text-warning";
+  if (tone === "red") return "text-danger";
+  return "text-foreground";
+}
+
+function customScenario(action: Action): Scenario {
+  return {
+    label: "Custom Action",
+    command: commandFromAction(action),
+    description: "Editable proposed action for local runtime testing.",
+    action,
+  };
+}
+
+function commandFromAction(action: Action): string {
+  const environmentFlag =
+    action.environment === "production" ? "--prod" : `--${action.environment}`;
+  return `${action.actionType || "act"} ${action.target || "target"} ${environmentFlag}`;
+}
+
+function hasRecoveryEvidence(action: Action): boolean {
+  return Boolean(action.rollbackOwner?.trim() || action.supportOwner?.trim() || action.rollbackPlan?.trim());
+}
+
+function normalizeCustomAction(action: Action): Action {
+  return {
+    ...action,
+    actionId: action.actionId.trim() || defaultCustomAction.actionId,
+    actorId: action.actorId.trim() || defaultCustomAction.actorId,
+    actionType: action.actionType.trim() || defaultCustomAction.actionType,
+    target: action.target.trim() || defaultCustomAction.target,
+    environment: action.environment,
+    timestamp: action.timestamp.trim() || defaultCustomAction.timestamp,
+    rollbackOwner: optionalText(action.rollbackOwner),
+    supportOwner: optionalText(action.supportOwner),
+    rollbackPlan: optionalText(action.rollbackPlan),
+  };
+}
+
+function optionalText(value?: string): string | undefined {
+  const text = value?.trim();
+  return text ? text : undefined;
 }
