@@ -15,19 +15,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Action, Evaluation, ResolutionInput, Reversibility } from "@/lib/runtime";
+import type { Action, Evaluation, Reversibility } from "@/lib/runtime";
 import { evaluateAction } from "@/lib/runtime";
 
-type Scenario = {
+type SampleAction = {
   label: string;
   command: string;
   description: string;
   action: Action;
 };
 
-const scenarios: Record<string, Scenario> = {
-  recovery: {
-    label: "Recovery Ownership Gap",
+const sampleActions: Record<string, SampleAction> = {
+  missing: {
+    label: "Missing recovery ownership",
     command: "deploy payments-api --prod",
     description: "Production deploy missing recovery ownership.",
     action: {
@@ -41,7 +41,7 @@ const scenarios: Record<string, Scenario> = {
     },
   },
   present: {
-    label: "Ownership Evidence Present",
+    label: "Recovery evidence present",
     command: "deploy payments-api --prod --rollback-ready",
     description: "Production deploy with required recovery evidence.",
     action: {
@@ -58,7 +58,7 @@ const scenarios: Record<string, Scenario> = {
     },
   },
   afterHours: {
-    label: "After-Hours Production Change",
+    label: "After-hours escalation",
     command: "deploy payments-api --prod --after-hours",
     description: "Low-reversibility production change after hours.",
     action: {
@@ -79,8 +79,6 @@ const evidenceLabels: Record<string, string> = {
   rollback_plan: "Rollback plan",
 };
 
-const CUSTOM_KEY = "custom";
-
 const defaultCustomAction: Action = {
   actionId: "act_custom_001",
   actorId: "custom-agent",
@@ -92,50 +90,20 @@ const defaultCustomAction: Action = {
 };
 
 export default function Home() {
-  const [scenarioKey, setScenarioKey] = useState("recovery");
-  const [rollbackOwner, setRollbackOwner] = useState("");
-  const [supportOwner, setSupportOwner] = useState("");
-  const [rollbackPlan, setRollbackPlan] = useState("");
-  const [submittedEvidence, setSubmittedEvidence] = useState<ResolutionInput>({});
   const [customDraft, setCustomDraft] = useState<Action>(defaultCustomAction);
   const [evaluatedCustomAction, setEvaluatedCustomAction] =
     useState<Action>(defaultCustomAction);
+  const [copyState, setCopyState] = useState<string | null>(null);
 
-  const isCustom = scenarioKey === CUSTOM_KEY;
-  const scenario = isCustom ? customScenario(evaluatedCustomAction) : scenarios[scenarioKey];
-  const activeAction = isCustom ? evaluatedCustomAction : scenario.action;
-  const initialEvaluation = useMemo(
-    () => evaluateAction(isCustom ? activeAction : scenario.action),
-    [activeAction, isCustom, scenario.action],
-  );
-  const evaluation = useMemo(
-    () => (isCustom ? evaluateAction(activeAction) : evaluateAction(scenario.action, submittedEvidence)),
-    [activeAction, isCustom, scenario.action, submittedEvidence],
-  );
-  const hasSubmittedEvidence = isCustom
-    ? hasRecoveryEvidence(activeAction)
-    : Object.values(submittedEvidence).some((value) => value?.trim());
+  const activeAction = evaluatedCustomAction;
+  const initialEvaluation = useMemo(() => evaluateAction(activeAction), [activeAction]);
+  const evaluation = useMemo(() => evaluateAction(activeAction), [activeAction]);
+  const hasSubmittedEvidence = hasRecoveryEvidence(activeAction);
+  const normalizedDraft = normalizeCustomAction(customDraft);
+  const draftChanged = !sameAction(normalizedDraft, activeAction);
+  const inputJson = JSON.stringify(toRuntimeInput(customDraft), null, 2);
+  const auditJson = JSON.stringify(auditPreview(activeAction, evaluation), null, 2);
   const state = consoleState(evaluation, initialEvaluation, hasSubmittedEvidence);
-
-  function submitEvidence() {
-    setSubmittedEvidence({
-      rollbackOwner,
-      supportOwner,
-      rollbackPlan,
-    });
-  }
-
-  function clearEvidence() {
-    setRollbackOwner("");
-    setSupportOwner("");
-    setRollbackPlan("");
-    setSubmittedEvidence({});
-  }
-
-  function selectScenario(key: string) {
-    setScenarioKey(key);
-    clearEvidence();
-  }
 
   function updateCustomAction<K extends keyof Action>(key: K, value: Action[K]) {
     setCustomDraft((current) => ({ ...current, [key]: value }));
@@ -150,17 +118,30 @@ export default function Home() {
     setEvaluatedCustomAction(defaultCustomAction);
   }
 
-  const advancedPayload = isCustom
-    ? {
-        mode: "custom",
-        input: { draftAction: customDraft, evaluatedAction: activeAction },
-        output: evaluation,
-      }
-    : {
-        mode: "scenario",
-        input: { action: scenario.action, submittedEvidence },
-        output: evaluation,
-      };
+  function loadSample(key: string) {
+    const sample = sampleActions[key];
+    if (!sample) return;
+    setCustomDraft(sample.action);
+  }
+
+  async function copyJson(label: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyState(label);
+      window.setTimeout(() => setCopyState(null), 1600);
+    } catch {
+      setCopyState(null);
+    }
+  }
+
+  const advancedPayload = {
+    mode: "workbench",
+    input: {
+      draftAction: customDraft,
+      lastEvaluated: activeAction,
+    },
+    output: evaluation,
+  };
 
   return (
     <main className="h-screen overflow-hidden bg-background text-foreground">
@@ -169,14 +150,12 @@ export default function Home() {
 
         <section className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[0.82fr_1.46fr_0.9fr]">
           <PausePanel
-            active={scenarioKey}
-            scenario={scenario}
-            isCustom={isCustom}
             customDraft={customDraft}
             evaluatedAction={activeAction}
             evaluation={evaluation}
-            onSelect={selectScenario}
             onCustomChange={updateCustomAction}
+            onLoadSample={loadSample}
+            draftChanged={draftChanged}
           />
           <QuestionPanel action={activeAction} evaluation={evaluation} state={state} />
           <ProceedPanel
@@ -184,21 +163,18 @@ export default function Home() {
             evaluation={evaluation}
             state={state}
             hasSubmittedEvidence={hasSubmittedEvidence}
-            rollbackOwner={isCustom ? customDraft.rollbackOwner ?? "" : rollbackOwner}
-            supportOwner={isCustom ? customDraft.supportOwner ?? "" : supportOwner}
-            rollbackPlan={isCustom ? customDraft.rollbackPlan ?? "" : rollbackPlan}
-            onRollbackOwner={(value) =>
-              isCustom ? updateCustomAction("rollbackOwner", value) : setRollbackOwner(value)
-            }
-            onSupportOwner={(value) =>
-              isCustom ? updateCustomAction("supportOwner", value) : setSupportOwner(value)
-            }
-            onRollbackPlan={(value) =>
-              isCustom ? updateCustomAction("rollbackPlan", value) : setRollbackPlan(value)
-            }
-            onSubmit={isCustom ? evaluateCustomAction : submitEvidence}
-            onClear={isCustom ? resetCustomAction : clearEvidence}
-            isCustom={isCustom}
+            rollbackOwner={customDraft.rollbackOwner ?? ""}
+            supportOwner={customDraft.supportOwner ?? ""}
+            rollbackPlan={customDraft.rollbackPlan ?? ""}
+            onRollbackOwner={(value) => updateCustomAction("rollbackOwner", value)}
+            onSupportOwner={(value) => updateCustomAction("supportOwner", value)}
+            onRollbackPlan={(value) => updateCustomAction("rollbackPlan", value)}
+            onSubmit={evaluateCustomAction}
+            onClear={resetCustomAction}
+            draftChanged={draftChanged}
+            onCopyInput={() => copyJson("input", inputJson)}
+            onCopyAudit={() => copyJson("audit", auditJson)}
+            copyState={copyState}
           />
         </section>
 
@@ -254,112 +230,67 @@ function ConsoleHeader({ state }: { state: ReturnType<typeof consoleState> }) {
 }
 
 function PausePanel({
-  active,
-  scenario,
-  isCustom,
   customDraft,
   evaluatedAction,
   evaluation,
-  onSelect,
   onCustomChange,
+  onLoadSample,
+  draftChanged,
 }: {
-  active: string;
-  scenario: Scenario;
-  isCustom: boolean;
   customDraft: Action;
   evaluatedAction: Action;
   evaluation: Evaluation;
-  onSelect: (key: string) => void;
   onCustomChange: <K extends keyof Action>(key: K, value: Action[K]) => void;
+  onLoadSample: (key: string) => void;
+  draftChanged: boolean;
 }) {
   return (
     <section className="console-frame min-h-0 overflow-hidden p-4">
       <PanelLabel eyebrow="01" title="Pause" />
 
-      <div className="mt-5 space-y-2">
-        {Object.entries(scenarios).map(([key, item]) => (
-          <button
-            key={key}
-            onClick={() => onSelect(key)}
-            className={cn(
-              "w-full border px-3 py-3 text-left transition",
-              active === key
-                ? "border-warning/45 bg-warning/[0.08] text-foreground"
-                : "border-border/70 bg-[#111214] text-muted-foreground hover:border-white/20 hover:text-foreground",
-            )}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-semibold uppercase tracking-[0.16em]">{item.label}</span>
-              {active === key ? <Triangle className="h-3.5 w-3.5 text-warning" /> : null}
-            </div>
-            <div className="mt-1 truncate font-mono text-xs">{item.command}</div>
-          </button>
-        ))}
-        <button
-          onClick={() => onSelect(CUSTOM_KEY)}
-          className={cn(
-            "w-full border px-3 py-3 text-left transition",
-            active === CUSTOM_KEY
-              ? "border-warning/45 bg-warning/[0.08] text-foreground"
-              : "border-border/70 bg-[#111214] text-muted-foreground hover:border-white/20 hover:text-foreground",
-          )}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em]">
-              Custom Action
-            </span>
-            {active === CUSTOM_KEY ? <Triangle className="h-3.5 w-3.5 text-warning" /> : null}
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <div>
+          <div className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+            Proposed Action
           </div>
-          <div className="mt-1 truncate font-mono text-xs">edit proposed execution</div>
-        </button>
-      </div>
-
-      <div className="mt-6 border-t border-border pt-5">
-        <div className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
-          Proposed action
+          <div className="mt-1 text-sm text-muted-foreground">
+            Edit the action to test. Evaluation changes only after you apply it.
+          </div>
         </div>
-        {isCustom ? (
-          <>
-            <div className="mt-3 flex items-center justify-between">
-              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-warning">
-                Draft Action
-              </span>
-              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                Click Evaluate Action to apply edits
-              </span>
-            </div>
-            <CustomActionForm action={customDraft} onChange={onCustomChange} />
-            <div className="mt-3 rounded-xl border border-border bg-muted/[0.2] p-3">
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                Last Evaluated
-              </div>
-              <div className="mt-1 truncate font-mono text-sm">
-                {commandFromAction(evaluatedAction)}
-              </div>
-            </div>
-            <TimestampWarning action={customDraft} />
-          </>
-        ) : (
-          <div className="mt-3 rounded-xl border border-border bg-[#0f1012] p-4">
-            <div className="font-mono text-lg text-foreground">{scenario.command}</div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {scenario.description}
-            </p>
-          </div>
-        )}
+        <Badge tone={draftChanged ? "amber" : "neutral"}>
+          {draftChanged ? "Draft changed" : "Last evaluated"}
+        </Badge>
       </div>
 
-      {!isCustom ? (
-        <dl className="mt-5 space-y-3">
-          <Readout label="Actor" value={scenario.action.actorId} />
-          <Readout label="Target" value={scenario.action.target} />
-          <Readout label="Environment" value={scenario.action.environment} />
-          <Readout label="Reversibility" value={scenario.action.reversibility} />
-        </dl>
-      ) : null}
+      <div className="mt-3 rounded-xl border border-border bg-muted/[0.18] p-3">
+        <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          Load sample
+        </div>
+        <div className="grid gap-2">
+          {Object.entries(sampleActions).map(([key, sample]) => (
+            <button
+              key={key}
+              onClick={() => onLoadSample(key)}
+              className="rounded-lg border border-border bg-[#111214] px-3 py-2 text-left text-xs font-semibold text-muted-foreground transition hover:border-warning/40 hover:text-foreground"
+            >
+              {sample.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <CustomActionForm action={customDraft} onChange={onCustomChange} />
+
+      <div className="mt-3 rounded-xl border border-border bg-muted/[0.2] p-3">
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          Last Evaluated
+        </div>
+        <div className="mt-1 truncate font-mono text-sm">{commandFromAction(evaluatedAction)}</div>
+      </div>
+      <TimestampWarning action={customDraft} />
 
       <div className="mt-5 rounded-xl border border-border bg-muted/[0.22] p-3">
-        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Control gap</div>
+        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Runtime Evaluation</div>
         <div className="mt-2 text-sm font-semibold">
           {evaluation.detectedGap ? "Recovery ownership missing" : "Required controls present"}
         </div>
@@ -377,8 +308,16 @@ function CustomActionForm({
 }) {
   return (
     <div className="mt-3 space-y-3 rounded-xl border border-border bg-[#0f1012] p-4">
+      <Field label="Action ID">
+        <Input
+          value={action.actionId}
+          onChange={(event) => onChange("actionId", event.target.value)}
+          placeholder="act_custom_001"
+          className="h-9 font-mono text-xs"
+        />
+      </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Actor">
+        <Field label="Actor ID">
           <Input
             value={action.actorId}
             onChange={(event) => onChange("actorId", event.target.value)}
@@ -386,7 +325,7 @@ function CustomActionForm({
             className="h-9"
           />
         </Field>
-        <Field label="Action">
+        <Field label="Action Type">
           <Input
             value={action.actionType}
             onChange={(event) => onChange("actionType", event.target.value)}
@@ -509,7 +448,7 @@ function RuleTrace({ action, evaluation }: { action: Action; evaluation: Evaluat
   return (
     <div className="mt-4 rounded-xl border border-border bg-[#101113] p-4">
       <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        Why Uh-Huh decided
+        Rule Trace
       </div>
       <div className="grid gap-x-4 gap-y-2 md:grid-cols-2">
         {trace.map((item) => (
@@ -532,7 +471,6 @@ function ProceedPanel({
   evaluation,
   state,
   hasSubmittedEvidence,
-  isCustom,
   rollbackOwner,
   supportOwner,
   rollbackPlan,
@@ -541,12 +479,15 @@ function ProceedPanel({
   onRollbackPlan,
   onSubmit,
   onClear,
+  draftChanged,
+  onCopyInput,
+  onCopyAudit,
+  copyState,
 }: {
   action: Action;
   evaluation: Evaluation;
   state: ReturnType<typeof consoleState>;
   hasSubmittedEvidence: boolean;
-  isCustom: boolean;
   rollbackOwner: string;
   supportOwner: string;
   rollbackPlan: string;
@@ -555,6 +496,10 @@ function ProceedPanel({
   onRollbackPlan: (value: string) => void;
   onSubmit: () => void;
   onClear: () => void;
+  draftChanged: boolean;
+  onCopyInput: () => void;
+  onCopyAudit: () => void;
+  copyState: string | null;
 }) {
   const DecisionIcon = state.icon;
   return (
@@ -563,7 +508,7 @@ function ProceedPanel({
 
       <div className="mt-5 rounded-xl border border-border bg-[#101113] p-4">
         <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          Required evidence
+          Recovery Evidence
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {evaluation.missingEvidence.length ? (
@@ -603,14 +548,20 @@ function ProceedPanel({
       </div>
 
       <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
-        <Button onClick={onSubmit}>{isCustom ? "Evaluate action" : "Supply evidence"}</Button>
+        <Button onClick={onSubmit}>Evaluate Action</Button>
         <button
           onClick={onClear}
           className="rounded-xl border border-border px-3 text-sm font-semibold text-muted-foreground transition hover:border-white/25 hover:text-foreground"
         >
-          {isCustom ? "Reset custom action" : "Clear"}
+          Reset action
         </button>
       </div>
+
+      {draftChanged ? (
+        <div className="mt-3 rounded-xl border border-warning/35 bg-warning/[0.08] p-3 text-xs font-semibold text-warning">
+          Draft changed. Click Evaluate Action to update the runtime evaluation.
+        </div>
+      ) : null}
 
       <div className={cn("mt-5 rounded-xl border p-4", state.decisionClass)}>
         <div className="flex items-center gap-2">
@@ -626,7 +577,39 @@ function ProceedPanel({
         </div>
       ) : null}
       <AuditPreview action={action} evaluation={evaluation} />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <CopyButton onClick={onCopyInput} active={copyState === "input"}>
+          Copy input JSON
+        </CopyButton>
+        <CopyButton onClick={onCopyAudit} active={copyState === "audit"}>
+          Copy audit JSON
+        </CopyButton>
+      </div>
     </section>
+  );
+}
+
+function CopyButton({
+  children,
+  active,
+  onClick,
+}: {
+  children: ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "rounded-xl border px-3 py-2 text-xs font-semibold transition",
+        active
+          ? "border-success/35 bg-success/[0.08] text-success"
+          : "border-border text-muted-foreground hover:border-white/25 hover:text-foreground",
+      )}
+    >
+      {active ? "Copied" : children}
+    </button>
   );
 }
 
@@ -635,7 +618,7 @@ function AuditPreview({ action, evaluation }: { action: Action; evaluation: Eval
   return (
     <div className="mt-4 rounded-xl border border-border bg-[#101113] p-3">
       <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        Audit preview
+        Audit Preview
       </div>
       <div className="mt-3 space-y-2">
         <AuditRow label="action_id" value={record.action_id} />
@@ -925,15 +908,6 @@ function toneText(tone: "gray" | "amber" | "green" | "red") {
   return "text-foreground";
 }
 
-function customScenario(action: Action): Scenario {
-  return {
-    label: "Custom Action",
-    command: commandFromAction(action),
-    description: "Editable proposed action for local runtime testing.",
-    action,
-  };
-}
-
 function commandFromAction(action: Action): string {
   const environmentFlag =
     action.environment === "production" ? "--prod" : `--${action.environment}`;
@@ -956,6 +930,26 @@ function normalizeCustomAction(action: Action): Action {
     rollbackOwner: optionalText(action.rollbackOwner),
     supportOwner: optionalText(action.supportOwner),
     rollbackPlan: optionalText(action.rollbackPlan),
+  };
+}
+
+function sameAction(left: Action, right: Action): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function toRuntimeInput(action: Action) {
+  const normalized = normalizeCustomAction(action);
+  return {
+    action_id: normalized.actionId,
+    actor_id: normalized.actorId,
+    action_type: normalized.actionType,
+    target: normalized.target,
+    environment: normalized.environment,
+    timestamp: normalized.timestamp,
+    rollback_owner: normalized.rollbackOwner ?? null,
+    support_owner: normalized.supportOwner ?? null,
+    rollback_plan: normalized.rollbackPlan ?? null,
+    reversibility: normalized.reversibility,
   };
 }
 

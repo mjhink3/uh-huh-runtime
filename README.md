@@ -8,6 +8,30 @@ Uh-Huh detects missing operational controls before consequential actions proceed
 control gap detected -> minimum useful question asked -> evidence supplied -> action allowed
 ```
 
+## Evaluation Model: PCIS
+
+Uh-Huh Runtime is built around **PCIS: Pattern-Control Intervention Selection**.
+
+Pattern-Control Intervention Selection is the process of evaluating a proposed action-in-context against known operational failure patterns, identifying the missing control, and selecting the minimum useful intervention before execution proceeds.
+
+In V0.2, PCIS is implemented as a single-pattern loop:
+
+```text
+Proposed Action
+-> Pattern match: production change with missing recovery ownership
+-> Control Gap: Recovery Ownership Gap
+-> Intervention: Ask the minimum useful question
+-> Evidence: rollback owner, support owner, rollback plan
+-> Decision: allow, ask, or escalate
+-> Audit Preview
+```
+
+- **PCIS** is the architectural model.
+- **Control Gap** is the operational primitive.
+- **Minimum Useful Question** is the user-facing intervention.
+- **V0.2 includes only one control gap.**
+- Future versions can add more patterns and gaps through the same PCIS loop.
+
 ## What This Repo Contains
 
 - **Python CLI runtime:** the reference prototype.
@@ -144,6 +168,8 @@ web/
   app/page.tsx                 # Next.js execution console
   lib/runtime.ts               # TypeScript demo runtime
   scripts/validate-runtime.mjs # TypeScript parity check
+docs/
+  ARCHITECTURE.md              # PCIS architecture note
 test_scenarios/
   recovery_ownership_cases.json
 tests/
