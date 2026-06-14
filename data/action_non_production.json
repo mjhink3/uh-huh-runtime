@@ -1,0 +1,12 @@
+{
+  "action_id": "act_dev_001",
+  "actor_id": "release-agent",
+  "action_type": "deploy",
+  "target": "payments-api",
+  "environment": "staging",
+  "timestamp": "2026-06-14T10:15:00-07:00",
+  "rollback_owner": null,
+  "support_owner": null,
+  "rollback_plan": null,
+  "reversibility": "medium"
+}

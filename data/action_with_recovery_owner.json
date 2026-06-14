@@ -1,0 +1,12 @@
+{
+  "action_id": "act_prod_002",
+  "actor_id": "release-agent",
+  "action_type": "deploy",
+  "target": "payments-api",
+  "environment": "production",
+  "timestamp": "2026-06-14T10:15:00-07:00",
+  "rollback_owner": "jane@example.com",
+  "support_owner": "sre-oncall",
+  "rollback_plan": "https://runbooks.example.com/payments-api/rollback",
+  "reversibility": "medium"
+}

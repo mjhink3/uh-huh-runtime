@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://uh-huh.local/schemas/action.schema.json",
+  "title": "Uh-Huh Runtime V0.1 Action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action_id",
+    "actor_id",
+    "action_type",
+    "target",
+    "environment",
+    "timestamp"
+  ],
+  "properties": {
+    "action_id": { "type": "string", "minLength": 1 },
+    "actor_id": { "type": "string", "minLength": 1 },
+    "action_type": { "type": "string", "minLength": 1 },
+    "target": { "type": "string", "minLength": 1 },
+    "environment": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string", "minLength": 1 },
+    "rollback_owner": { "type": ["string", "null"] },
+    "support_owner": { "type": ["string", "null"] },
+    "rollback_plan": { "type": ["string", "null"] },
+    "reversibility": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "default": "medium"
+    }
+  }
+}

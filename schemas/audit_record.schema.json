@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://uh-huh.local/schemas/audit_record.schema.json",
+  "title": "Uh-Huh Runtime V0.1 Audit Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action_id",
+    "actor_id",
+    "detected_gap",
+    "missing_evidence",
+    "question_asked",
+    "resolution_status",
+    "resolution_evidence",
+    "final_decision",
+    "timestamp",
+    "action_snapshot"
+  ],
+  "properties": {
+    "action_id": { "type": "string" },
+    "actor_id": { "type": "string" },
+    "detected_gap": { "type": ["string", "null"] },
+    "missing_evidence": { "type": "array", "items": { "type": "string" } },
+    "question_asked": { "type": ["string", "null"] },
+    "resolution_status": {
+      "type": "string",
+      "enum": ["not_applicable", "unresolved", "resolved", "escalated"]
+    },
+    "resolution_evidence": { "type": "array", "items": { "type": "string" } },
+    "final_decision": { "type": "string", "enum": ["allow", "ask", "confirm", "escalate"] },
+    "timestamp": { "type": "string" },
+    "action_snapshot": { "type": "object" }
+  }
+}
